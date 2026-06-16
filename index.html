@@ -703,7 +703,7 @@ function spawnNextOccurrence(t) {
     estimatedHours: t.estimatedHours, actualHours: 0, status: 'pending',
     scheduledDate: next, order: nextOrder(next),
     progress: null, description: t.description || '', memoCollapsed: false, bucket: null, assignee: null,
-    dueDate: t.dueDate ? nextRecurDate(t.repeat, t.dueDate) : null,
+    dueDate: null,
     repeat: t.repeat, recurSpawned: false,
     completedAt: null, createdAt: new Date().toISOString(),
   });
@@ -942,9 +942,7 @@ function taskRowHTML(t, opts = {}) {
   const expanded = state.expandedTaskId === t.id;
   const hasDesc = t.description && t.description.trim();
   const today = todayISO();
-  const dueHTML = t.dueDate
-    ? `<button class="due-badge ${(t.dueDate < today && t.status!=='completed') ? 'overdue' : (t.dueDate === today ? 'today' : '')}" data-action="due">🚩 ${formatMD(t.dueDate)}</button>`
-    : `<button class="meta-add" data-action="due" title="期限を設定">📅</button>`;
+  const dueHTML = `<button class="meta-add" data-action="schedule" title="日付を変更">📅</button>`;
   const repeatHTML = t.repeat
     ? `<button class="repeat-badge" data-action="repeat">🔁 ${REPEAT_LABEL[t.repeat]}</button>`
     : `<button class="meta-add" data-action="repeat" title="繰り返しを設定">🔁</button>`;
@@ -1160,7 +1158,7 @@ function bindTaskListInteractions(root, rerender) {
         else if (act === 'move-delegated') moveTask(id, 'delegated');
         else if (act === 'expand') { ev.stopPropagation(); toggleTaskExpand(id, rerender); }
         else if (act === 'collapse-memo') { ev.stopPropagation(); collapseTaskMemo(id, rerender); }
-        else if (act === 'due') openDueDateInput(el, id, rerender);
+        else if (act === 'schedule') openScheduleInput(el, id, rerender);
         else if (act === 'repeat') openRepeatSelect(el, id, rerender);
         else if (act === 'edit') editTitleInline(el, id, rerender);
       });
@@ -1214,13 +1212,17 @@ function editTitleInline(span, id, rerender) {
   input.addEventListener('blur', commit);
 }
 
-function openDueDateInput(btn, id, rerender) {
+function openScheduleInput(btn, id, rerender) {
   const t = getTask(id); if (!t) return;
   const input = document.createElement('input');
-  input.type = 'date'; input.className = 'meta-input'; input.value = t.dueDate || '';
+  input.type = 'date'; input.className = 'meta-input'; input.value = t.scheduledDate || '';
   btn.replaceWith(input); input.focus(); if (input.showPicker) try { input.showPicker(); } catch {}
   let done = false;
-  const commit = () => { if (done) return; done = true; t.dueDate = input.value || null; persistTasks(); rerender(); };
+  const commit = () => {
+    if (done) return; done = true;
+    if (input.value) { t.scheduledDate = input.value; t.bucket = null; t.order = nextOrder(t.scheduledDate); }
+    persistTasks(); rerender();
+  };
   input.addEventListener('change', commit);
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', e => { if (e.key === 'Escape') { done = true; rerender(); } });
@@ -1694,7 +1696,11 @@ function init() {
   }
   // sanity coerce
   if (!Array.isArray(state.tasks)) state.tasks = [];
-  state.tasks.forEach(t => { if (t.progress === undefined) t.progress = null; if (t.description === undefined) t.description = ''; if (t.bucket === undefined) t.bucket = null; if (t.assignee === undefined) t.assignee = null; if (t.dueDate === undefined) t.dueDate = null; if (t.repeat === undefined) t.repeat = null; if (t.recurSpawned === undefined) t.recurSpawned = false; });
+  state.tasks.forEach(t => { if (t.progress === undefined) t.progress = null; if (t.description === undefined) t.description = ''; if (t.bucket === undefined) t.bucket = null; if (t.assignee === undefined) t.assignee = null; if (t.repeat === undefined) t.repeat = null; if (t.recurSpawned === undefined) t.recurSpawned = false;
+    // 旧「締切」を1つの日付（予定日）に統合
+    if (t.dueDate) { t.scheduledDate = t.dueDate; t.dueDate = null; }
+  });
+  persistTasks();
 
   checkAutoApplyTemplates();
   renderNav();
