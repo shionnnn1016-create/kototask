@@ -329,6 +329,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 .repeat-badge:hover { filter: brightness(.96); }
 .meta-input { font-size: 12px; border: 1px solid var(--gray-300); border-radius: 6px; padding: 2px 6px; outline: none; flex-shrink: 0; background: #fff; }
 .sched-badge { background: var(--gray-100); color: var(--gray-600); border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.sched-badge.overdue { background: rgba(181,84,77,.14); color: var(--red-500); }
 .qa-date { display: inline-flex; background: var(--gray-100); border-radius: 7px; padding: 2px; gap: 2px; flex-shrink: 0; }
 .qa-date button { border: none; background: none; padding: 4px 9px; font-size: 12px; font-weight: 600; color: var(--gray-500); border-radius: 5px; white-space: nowrap; }
 .qa-date button.active { background: #fff; color: var(--ink); box-shadow: var(--shadow-sm); }
@@ -598,6 +599,7 @@ const state = {
   collapsedSomeday: false,
   collapsedDelegated: false,
   collapsedFuture: false,
+  collapsedOverdue: false,
   collapsedProjects: new Set(),
   notesHidden: loadStr('taskdock_notesHidden') === '1',
   expandedNoteId: null,
@@ -636,13 +638,15 @@ const getTask = id => state.tasks.find(t => t.id === id) || null;
 
 /* ============ Task queries ============ */
 function tasksOnDate(iso) {
+  return state.tasks
+    .filter(t => t.bucket !== 'delegated' && t.scheduledDate === iso)
+    .sort((a,b) => (a.order||0) - (b.order||0));
+}
+function overdueTasks() {
   const today = todayISO();
-  let list = state.tasks.filter(t => t.bucket !== 'delegated' && t.scheduledDate === iso);
-  if (iso === today) {
-    const carry = state.tasks.filter(t => t.bucket !== 'delegated' && t.scheduledDate && t.scheduledDate < today && t.status !== 'completed');
-    list = list.concat(carry);
-  }
-  return list.sort((a,b) => (a.order||0) - (b.order||0));
+  return state.tasks
+    .filter(t => t.bucket !== 'delegated' && t.scheduledDate && t.scheduledDate < today && t.status !== 'completed')
+    .sort((a,b) => a.scheduledDate.localeCompare(b.scheduledDate) || (a.order||0)-(b.order||0));
 }
 const somedayTasks   = () => state.tasks.filter(t => !t.scheduledDate && t.bucket !== 'delegated').sort((a,b)=>(a.order||0)-(b.order||0));
 const delegatedTasks = () => state.tasks.filter(t => t.bucket === 'delegated').sort((a,b)=>(a.order||0)-(b.order||0));
@@ -813,8 +817,18 @@ function sectionHTML({ key, title, count, collapsed, tasks, emptyMsg, addDate, a
 
 function renderListView() {
   const today = todayISO();
+  let html = '';
+
+  const overdue = overdueTasks();
+  if (overdue.length) {
+    html += sectionHTML({
+      key: 'overdue', title: '⚠️ 期限切れ・やり残し', count: overdue.length,
+      collapsed: state.collapsedOverdue, tasks: overdue, showSched: true, showAdd: false,
+    });
+  }
+
   const todayTasks = tasksOnDate(today);
-  let html = sectionHTML({
+  html += sectionHTML({
     key: 'today', title: '今日のタスク', count: todayTasks.length,
     collapsed: state.collapsedToday, tasks: todayTasks,
     emptyMsg: '今日はまだタスクがありません', showAdd: false,
@@ -908,8 +922,10 @@ function taskRowHTML(t, opts = {}) {
   const checked = t.status === 'completed';
   let todayBadge = '';
   if (opts.showTodayBadge) {
-    if (t.scheduledDate === todayISO()) todayBadge = `<span class="today-badge">今日</span>`;
-    else if (t.scheduledDate && t.scheduledDate > todayISO()) todayBadge = `<span class="sched-badge">📆 ${formatMD(t.scheduledDate)}</span>`;
+    const td = todayISO();
+    if (t.scheduledDate === td) todayBadge = `<span class="today-badge">今日</span>`;
+    else if (t.scheduledDate && t.scheduledDate > td) todayBadge = `<span class="sched-badge">📆 ${formatMD(t.scheduledDate)}</span>`;
+    else if (t.scheduledDate && t.scheduledDate < td && t.status !== 'completed') todayBadge = `<span class="sched-badge overdue">📆 ${formatMD(t.scheduledDate)}</span>`;
   }
   const proj = getProject(t.projectId);
   const wt = getWorkType(t.workType);
@@ -1079,6 +1095,7 @@ function bindTasksTab() {
   $$('[data-toggle-section]', root).forEach(h => h.addEventListener('click', () => {
     const key = h.dataset.toggleSection;
     if (key === 'today') state.collapsedToday = !state.collapsedToday;
+    else if (key === 'overdue') state.collapsedOverdue = !state.collapsedOverdue;
     else if (key === 'future') state.collapsedFuture = !state.collapsedFuture;
     else if (key === 'someday') state.collapsedSomeday = !state.collapsedSomeday;
     else if (key === 'delegated') state.collapsedDelegated = !state.collapsedDelegated;
