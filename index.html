@@ -280,6 +280,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 .inline-add .plus { color: var(--gray-400); font-size: 13px; }
 
 .empty-msg { padding: 16px 14px; font-size: 12px; color: var(--gray-400); text-align: center; }
+.proj-groups-label { font-size: 12px; font-weight: 700; color: var(--gray-500); margin: 16px 4px 8px; letter-spacing: .02em; }
 
 /* ============ Timeline ============ */
 .timeline-grid { position: relative; padding: 8px 0; }
@@ -648,6 +649,12 @@ function overdueTasks() {
     .filter(t => t.bucket !== 'delegated' && t.scheduledDate && t.scheduledDate < today && t.status !== 'completed')
     .sort((a,b) => a.scheduledDate.localeCompare(b.scheduledDate) || (a.order||0)-(b.order||0));
 }
+function futureTasks() {
+  const today = todayISO();
+  return state.tasks
+    .filter(t => t.bucket !== 'delegated' && t.scheduledDate && t.scheduledDate > today)
+    .sort((a,b) => a.scheduledDate.localeCompare(b.scheduledDate) || (a.order||0)-(b.order||0));
+}
 const somedayTasks   = () => state.tasks.filter(t => !t.scheduledDate && t.bucket !== 'delegated').sort((a,b)=>(a.order||0)-(b.order||0));
 const delegatedTasks = () => state.tasks.filter(t => t.bucket === 'delegated').sort((a,b)=>(a.order||0)-(b.order||0));
 function futureDates() {
@@ -834,9 +841,7 @@ function renderListView() {
     emptyMsg: '今日はまだタスクがありません', showAdd: false,
   });
 
-  const future = state.tasks
-    .filter(t => t.bucket !== 'delegated' && t.scheduledDate && t.scheduledDate > today)
-    .sort((a,b) => a.scheduledDate.localeCompare(b.scheduledDate) || (a.order||0)-(b.order||0));
+  const future = futureTasks();
   html += sectionHTML({
     key: 'future', title: '📅 明日以降のタスク', count: future.length,
     collapsed: state.collapsedFuture, tasks: future, showSched: true,
@@ -861,40 +866,38 @@ function renderListView() {
   return html;
 }
 
-function todayPinnedHTML() {
-  const list = tasksOnDate(todayISO());
-  const rows = list.length
-    ? list.map(taskRowHTML).join('')
-    : `<div class="empty-msg">今日のタスクはまだありません。下のプロジェクトから「→今日」で入れられます。</div>`;
-  return `<div class="card tasks-section today-pinned ${state.collapsedToday?'collapsed':''}" data-section="today">
-    <div class="tasks-section-header" data-toggle-section="today">
-      <span class="tasks-section-title">${Icon.chevDown}今日のタスク</span>
-      <span class="tasks-section-count">${list.length}件</span>
-    </div>
-    <ul class="task-list">${rows}</ul>
-  </div>`;
-}
-
 function renderProjectView() {
+  const today = todayISO();
+  let html = '';
+
+  // ----- date categories (top) -----
+  const overdue = overdueTasks();
+  if (overdue.length) {
+    html += sectionHTML({ key: 'overdue', title: '⚠️ 期限切れ・やり残し', count: overdue.length, collapsed: state.collapsedOverdue, tasks: overdue, showSched: true });
+  }
+  const todayList = tasksOnDate(today);
+  html += sectionHTML({ key: 'today', title: '今日のタスク', count: todayList.length, collapsed: state.collapsedToday, tasks: todayList, emptyMsg: '今日のタスクはまだありません。下のプロジェクトから「→今日」で入れられます。' });
+  const future = futureTasks();
+  html += sectionHTML({ key: 'future', title: '📅 明日以降のタスク', count: future.length, collapsed: state.collapsedFuture, tasks: future, showSched: true, emptyMsg: '明日以降に予定したタスクはありません' });
+
+  // ----- project groups: undated backlog only -----
   const groups = [];
   state.projects.forEach(p => {
     const tasks = state.tasks
-      .filter(t => t.projectId === p.id && t.status !== 'completed' && t.bucket !== 'delegated')
+      .filter(t => t.projectId === p.id && !t.scheduledDate && t.status !== 'completed' && t.bucket !== 'delegated')
       .sort((a,b)=>(a.order||0)-(b.order||0));
     groups.push({ key: 'proj:'+p.id, title: p.name, color: p.color, projectId: p.id, tasks });
   });
   const none = state.tasks
-    .filter(t => !t.projectId && t.status !== 'completed' && t.bucket !== 'delegated')
+    .filter(t => !t.projectId && !t.scheduledDate && t.status !== 'completed' && t.bucket !== 'delegated')
     .sort((a,b)=>(a.order||0)-(b.order||0));
   if (none.length) groups.push({ key: 'proj:none', title: '未分類', color: null, projectId: null, tasks: none });
 
-  if (!state.projects.length) {
-    return todayPinnedHTML() + `<div class="card"><div class="empty-msg">プロジェクトがありません。設定タブから追加できます。</div></div>`;
-  }
+  if (state.projects.length) html += `<div class="proj-groups-label">プロジェクト別ストック（予定日なし）</div>`;
 
-  return todayPinnedHTML() + groups.map(g => {
+  html += groups.map(g => {
     const collapsed = state.collapsedProjects.has(g.key);
-    const rows = g.tasks.length ? g.tasks.map(t => taskRowHTML(t, { showTodayBadge: true })).join('') : `<div class="empty-msg">タスクはありません</div>`;
+    const rows = g.tasks.length ? g.tasks.map(t => taskRowHTML(t)).join('') : `<div class="empty-msg">タスクはありません</div>`;
     const dot = g.color ? `<span class="proj-dot" style="background:${g.color}"></span>` : '';
     return `<div class="card tasks-section ${collapsed?'collapsed':''}" data-section="${g.key}">
       <div class="tasks-section-header" data-toggle-project="${g.key}">
@@ -905,6 +908,8 @@ function renderProjectView() {
       <div class="inline-add"><span class="plus">＋</span><input type="text" data-proj-add="${g.projectId==null?'':g.projectId}" placeholder="＋ ${escapeHTML(g.title)}にタスクを追加" autocomplete="off"></div>
     </div>`;
   }).join('');
+
+  return html;
 }
 
 function moveButtonsHTML(t) {
