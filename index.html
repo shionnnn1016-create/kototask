@@ -309,6 +309,15 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 .proj-tag-empty:hover { background: var(--gray-100); color: var(--gray-700); }
 .today-badge { background: var(--ink); color: #fff; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; flex-shrink: 0; letter-spacing: .02em; }
 .today-pinned .tasks-section-title { color: var(--ink); font-size: 13px; }
+.meta-add { background: transparent; border: none; color: var(--gray-300); font-size: 12px; padding: 2px 5px; border-radius: 5px; flex-shrink: 0; line-height: 1; transition: all .15s ease; }
+.meta-add:hover { background: var(--gray-100); color: var(--gray-700); }
+.due-badge { background: var(--gray-100); color: var(--gray-700); border: none; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; flex-shrink: 0; transition: filter .15s ease; }
+.due-badge:hover { filter: brightness(.96); }
+.due-badge.overdue { background: rgba(181,84,77,.14); color: var(--red-500); }
+.due-badge.today { background: rgba(168,143,92,.18); color: #8c7340; }
+.repeat-badge { background: rgba(104,136,110,.16); color: var(--green-600); border: none; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; flex-shrink: 0; transition: filter .15s ease; }
+.repeat-badge:hover { filter: brightness(.96); }
+.meta-input { font-size: 12px; border: 1px solid var(--gray-300); border-radius: 6px; padding: 2px 6px; outline: none; flex-shrink: 0; background: #fff; }
 .notes-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; padding: 0 2px; }
 .notes-header h2 { font-size: 14px; font-weight: 700; color: var(--ink); }
 .notes-header .count { font-size: 11px; color: var(--gray-500); }
@@ -497,6 +506,11 @@ const parseISO = s => { const [y,m,d] = s.split('-').map(Number); return new Dat
 const todayISO = () => isoDate(new Date());
 const DAY_LABELS = ['日','月','火','水','木','金','土'];
 const formatDateJP = iso => { const d = parseISO(iso); return `${d.getMonth()+1}/${d.getDate()}（${DAY_LABELS[d.getDay()]}）`; };
+const formatMD = iso => { const d = parseISO(iso); return `${d.getMonth()+1}/${d.getDate()}`; };
+const addDays = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate()+n); return isoDate(d); };
+const addMonths = (iso, n) => { const d = parseISO(iso); d.setMonth(d.getMonth()+n); return isoDate(d); };
+const nextRecurDate = (rep, base) => rep==='weekly' ? addDays(base,7) : rep==='monthly' ? addMonths(base,1) : addDays(base,1);
+const REPEAT_LABEL = { daily: '毎日', weekly: '毎週', monthly: '毎月' };
 const escapeHTML = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const alphaHex = (hex, a='20') => hex + a;
 
@@ -633,6 +647,7 @@ function addTask({ title, scheduledDate=null, projectId=null, workType=null, est
     estimatedHours, actualHours: 0, status: 'pending',
     scheduledDate, order: nextOrder(scheduledDate, bucket),
     progress: null, description: '', memoCollapsed: false, bucket, assignee: null,
+    dueDate: null, repeat: null, recurSpawned: false,
     completedAt: null, createdAt: new Date().toISOString(),
   };
   state.tasks.push(t);
@@ -643,8 +658,25 @@ function addTask({ title, scheduledDate=null, projectId=null, workType=null, est
 function toggleTask(id) {
   const t = getTask(id); if (!t) return;
   if (t.status === 'completed') { t.status = 'pending'; t.completedAt = null; }
-  else { t.status = 'completed'; t.completedAt = new Date().toISOString(); if (!t.actualHours) t.actualHours = t.estimatedHours; }
+  else {
+    t.status = 'completed'; t.completedAt = new Date().toISOString();
+    if (!t.actualHours) t.actualHours = t.estimatedHours;
+    if (t.repeat && !t.recurSpawned) { spawnNextOccurrence(t); t.recurSpawned = true; showToast(`次回（${REPEAT_LABEL[t.repeat]}）を作成しました`); }
+  }
   persistTasks(); renderActiveTab();
+}
+function spawnNextOccurrence(t) {
+  const base = t.scheduledDate || todayISO();
+  const next = nextRecurDate(t.repeat, base);
+  state.tasks.push({
+    id: uid(), title: t.title, projectId: t.projectId, workType: t.workType,
+    estimatedHours: t.estimatedHours, actualHours: 0, status: 'pending',
+    scheduledDate: next, order: nextOrder(next),
+    progress: null, description: t.description || '', memoCollapsed: false, bucket: null, assignee: null,
+    dueDate: t.dueDate ? nextRecurDate(t.repeat, t.dueDate) : null,
+    repeat: t.repeat, recurSpawned: false,
+    completedAt: null, createdAt: new Date().toISOString(),
+  });
 }
 function deleteTask(id) {
   state.tasks = state.tasks.filter(t => t.id !== id);
@@ -858,6 +890,13 @@ function taskRowHTML(t, opts = {}) {
   const statusStyle = prog.color ? `style="background:${alphaHex(prog.color,'26')};color:${prog.color}"` : '';
   const expanded = state.expandedTaskId === t.id;
   const hasDesc = t.description && t.description.trim();
+  const today = todayISO();
+  const dueHTML = t.dueDate
+    ? `<button class="due-badge ${(t.dueDate < today && t.status!=='completed') ? 'overdue' : (t.dueDate === today ? 'today' : '')}" data-action="due">🚩 ${formatMD(t.dueDate)}</button>`
+    : `<button class="meta-add" data-action="due" title="期限を設定">📅</button>`;
+  const repeatHTML = t.repeat
+    ? `<button class="repeat-badge" data-action="repeat">🔁 ${REPEAT_LABEL[t.repeat]}</button>`
+    : `<button class="meta-add" data-action="repeat" title="繰り返しを設定">🔁</button>`;
 
   let descBlock = '';
   if (expanded) {
@@ -883,6 +922,8 @@ function taskRowHTML(t, opts = {}) {
       : `<button class="task-move" data-action="assignee">＋ 誰に</button>`) : ''}
     <button class="status-tag ${prog.color?'set':''}" data-action="status" ${statusStyle}>${prog.label}</button>
     <button class="hours-tag" data-action="hours">${fmt(t.estimatedHours)}h</button>
+    ${dueHTML}
+    ${repeatHTML}
     ${moveButtonsHTML(t)}
     <button class="task-expand ${hasDesc?'has-desc':''} ${expanded?'active':''}" data-action="expand">${hasDesc?'📝 メモ':'＋メモ'}</button>
     <button class="task-delete" data-action="delete" aria-label="削除">${Icon.trash}</button>
@@ -1047,6 +1088,8 @@ function bindTaskListInteractions(root, rerender) {
         else if (act === 'expand') { ev.stopPropagation(); toggleTaskExpand(id, rerender); }
         else if (act === 'collapse-memo') { ev.stopPropagation(); collapseTaskMemo(id, rerender); }
         else if (act === 'assignee') editAssigneeInline(el, id, rerender);
+        else if (act === 'due') openDueDateInput(el, id, rerender);
+        else if (act === 'repeat') openRepeatSelect(el, id, rerender);
         else if (act === 'project') openProjectSelect(el, id, rerender);
         else if (act === 'edit') editTitleInline(el, id, rerender);
       });
@@ -1095,6 +1138,35 @@ function editAssigneeInline(btn, id, rerender) {
   const commit = () => { if (done) return; done = true; t.assignee = input.value.trim() || null; persistTasks(); rerender(); };
   input.addEventListener('keydown', e => { if (isEnter(e)) { e.preventDefault(); commit(); } else if (e.key === 'Escape') { done = true; rerender(); } });
   input.addEventListener('blur', commit);
+}
+
+function openDueDateInput(btn, id, rerender) {
+  const t = getTask(id); if (!t) return;
+  const input = document.createElement('input');
+  input.type = 'date'; input.className = 'meta-input'; input.value = t.dueDate || '';
+  btn.replaceWith(input); input.focus(); if (input.showPicker) try { input.showPicker(); } catch {}
+  let done = false;
+  const commit = () => { if (done) return; done = true; t.dueDate = input.value || null; persistTasks(); rerender(); };
+  input.addEventListener('change', commit);
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') { done = true; rerender(); } });
+}
+
+function openRepeatSelect(btn, id, rerender) {
+  const t = getTask(id); if (!t) return;
+  const opts = [['','なし'],['daily','毎日'],['weekly','毎週'],['monthly','毎月']];
+  const sel = document.createElement('select');
+  sel.className = 'tag-select';
+  sel.innerHTML = opts.map(([v,l]) => `<option value="${v}" ${(t.repeat||'')===v?'selected':''}>${l}</option>`).join('');
+  btn.replaceWith(sel); sel.focus(); if (sel.showPicker) try { sel.showPicker(); } catch {}
+  let done = false;
+  const commit = () => {
+    if (done) return; done = true;
+    t.repeat = sel.value || null;
+    if (t.repeat) { t.recurSpawned = false; if (!t.scheduledDate) { t.scheduledDate = todayISO(); t.order = nextOrder(t.scheduledDate); } }
+    persistTasks(); rerender();
+  };
+  sel.addEventListener('change', commit); sel.addEventListener('blur', commit);
 }
 
 function openProjectSelect(btn, id, rerender) {
@@ -1571,7 +1643,7 @@ function init() {
   }
   // sanity coerce
   if (!Array.isArray(state.tasks)) state.tasks = [];
-  state.tasks.forEach(t => { if (t.progress === undefined) t.progress = null; if (t.description === undefined) t.description = ''; if (t.bucket === undefined) t.bucket = null; if (t.assignee === undefined) t.assignee = null; });
+  state.tasks.forEach(t => { if (t.progress === undefined) t.progress = null; if (t.description === undefined) t.description = ''; if (t.bucket === undefined) t.bucket = null; if (t.assignee === undefined) t.assignee = null; if (t.dueDate === undefined) t.dueDate = null; if (t.repeat === undefined) t.repeat = null; if (t.recurSpawned === undefined) t.recurSpawned = false; });
 
   checkAutoApplyTemplates();
   renderNav();
