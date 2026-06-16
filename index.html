@@ -94,7 +94,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 /* ============ Tasks layout ============ */
 .tasks-grid {
   display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, 5fr) minmax(0, 2fr);
   gap: 24px; align-items: start;
 }
 .tasks-grid.single { grid-template-columns: 1fr; }
@@ -190,8 +190,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 .task-check.checked svg { display: block; }
 
 .task-title {
-  flex: 1; font-size: 13px; color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; cursor: text;
+  flex: 1; font-size: 14px; color: var(--ink);
+  white-space: normal; overflow-wrap: anywhere; min-width: 140px; cursor: text; line-height: 1.4;
 }
 .task-title-input {
   flex: 1; font-size: 13px; border: 1px solid var(--gray-300); border-radius: 5px;
@@ -261,6 +261,16 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
   resize: none; width: calc(100% - 30px); min-height: 56px; background: #fff; color: var(--ink);
 }
 .task-description:focus { border-color: var(--gray-500); }
+
+.task-panel { flex-basis: 100%; margin: 8px 0 2px 30px; display: flex; flex-direction: column; gap: 10px; }
+.task-panel-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.task-panel-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: var(--gray-500); }
+.task-panel-field select, .task-panel-field input {
+  font-size: 12px; border: 1px solid var(--gray-300); border-radius: 6px; padding: 5px 8px;
+  outline: none; background: #fff; color: var(--ink); font-weight: 500; min-width: 130px;
+}
+.task-panel-field select:focus, .task-panel-field input:focus { border-color: var(--gray-500); }
+.task-panel .task-description { margin: 0; width: 100%; }
 
 .inline-add { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
 .inline-add input {
@@ -914,9 +924,22 @@ function taskRowHTML(t, opts = {}) {
     ? `<button class="repeat-badge" data-action="repeat">🔁 ${REPEAT_LABEL[t.repeat]}</button>`
     : `<button class="meta-add" data-action="repeat" title="繰り返しを設定">🔁</button>`;
 
+  const hasDetail = hasDesc || proj || wt || t.progress || t.assignee;
+
   let descBlock = '';
   if (expanded) {
-    descBlock = `<textarea class="task-description" data-desc-input placeholder="メモ・詳細を書く（複数行 OK）">${escapeHTML(t.description||'')}</textarea>`;
+    const projOpts = `<option value="">なし</option>` + state.projects.map(p=>`<option value="${p.id}" ${t.projectId===p.id?'selected':''}>${escapeHTML(p.name)}</option>`).join('');
+    const wtOpts = `<option value="">なし</option>` + state.workTypes.map(w=>`<option value="${w.id}" ${t.workType===w.id?'selected':''}>${escapeHTML(w.label)}</option>`).join('');
+    const stOpts = TASK_PROGRESS.map(p=>`<option value="${p.key==null?'':p.key}" ${(t.progress||null)===p.key?'selected':''}>${p.dropdown}</option>`).join('');
+    descBlock = `<div class="task-panel">
+      <div class="task-panel-row">
+        <label class="task-panel-field">プロジェクト<select data-panel="project">${projOpts}</select></label>
+        <label class="task-panel-field">作業種類<select data-panel="worktype">${wtOpts}</select></label>
+        <label class="task-panel-field">ステータス<select data-panel="status">${stOpts}</select></label>
+        ${t.bucket==='delegated' ? `<label class="task-panel-field">依頼先<input type="text" data-panel="assignee" value="${escapeHTML(t.assignee||'')}" placeholder="誰に頼んだ？"></label>` : ''}
+      </div>
+      <textarea class="task-description" data-desc-input placeholder="メモ・詳細を書く（複数行 OK）">${escapeHTML(t.description||'')}</textarea>
+    </div>`;
   } else if (hasDesc && !t.memoCollapsed) {
     descBlock = `<div class="task-desc-preview" data-action="expand">
       <span class="task-desc-text">${escapeHTML(t.description)}</span>
@@ -928,20 +951,13 @@ function taskRowHTML(t, opts = {}) {
     <span class="task-handle">⋮⋮</span>
     <button class="task-check ${checked?'checked':''}" data-action="toggle">${Icon.check}</button>
     <span class="task-title" data-action="edit">${escapeHTML(t.title)}</span>
+    ${proj ? `<span class="proj-dot" style="background:${proj.color}" title="${escapeHTML(proj.name)}"></span>` : ''}
     ${todayBadge}
-    ${proj
-      ? `<button class="tag proj-tag" data-action="project" style="background:${alphaHex(proj.color)};color:${proj.color}">${escapeHTML(proj.name)}</button>`
-      : `<button class="proj-tag-empty" data-action="project">＋ PJ</button>`}
-    ${wt ? `<span class="tag" style="background:${alphaHex(wt.color)};color:${wt.color}">${escapeHTML(wt.label)}</span>` : ''}
-    ${t.bucket==='delegated' ? (t.assignee
-      ? `<button class="assignee-tag" data-action="assignee">🧑 ${escapeHTML(t.assignee)}</button>`
-      : `<button class="task-move" data-action="assignee">＋ 誰に</button>`) : ''}
-    <button class="status-tag ${prog.color?'set':''}" data-action="status" ${statusStyle}>${prog.label}</button>
     <button class="hours-tag" data-action="hours">${fmt(t.estimatedHours)}h</button>
     ${dueHTML}
     ${repeatHTML}
     ${moveButtonsHTML(t)}
-    <button class="task-expand ${hasDesc?'has-desc':''} ${expanded?'active':''}" data-action="expand">${hasDesc?'📝 メモ':'＋メモ'}</button>
+    <button class="task-expand ${hasDetail?'has-desc':''} ${expanded?'active':''}" data-action="expand">${expanded?'閉じる':(hasDetail?'📝 詳細':'＋ 詳細')}</button>
     <button class="task-delete" data-action="delete" aria-label="削除">${Icon.trash}</button>
     ${descBlock}
   </li>`;
@@ -1112,23 +1128,36 @@ function bindTaskListInteractions(root, rerender) {
         if (act === 'toggle') toggleTask(id);
         else if (act === 'delete') { if (confirm('このタスクを削除しますか？')) deleteTask(id); }
         else if (act === 'hours') openHoursSelect(el, id, rerender);
-        else if (act === 'status') openProgressSelect(el, id, rerender);
         else if (act === 'move-today') moveTask(id, 'today');
         else if (act === 'move-someday') moveTask(id, 'someday');
         else if (act === 'move-delegated') moveTask(id, 'delegated');
         else if (act === 'expand') { ev.stopPropagation(); toggleTaskExpand(id, rerender); }
         else if (act === 'collapse-memo') { ev.stopPropagation(); collapseTaskMemo(id, rerender); }
-        else if (act === 'assignee') editAssigneeInline(el, id, rerender);
         else if (act === 'due') openDueDateInput(el, id, rerender);
         else if (act === 'repeat') openRepeatSelect(el, id, rerender);
-        else if (act === 'project') openProjectSelect(el, id, rerender);
         else if (act === 'edit') editTitleInline(el, id, rerender);
       });
     });
+    // detail panel selects / inputs
+    $$('[data-panel]', row).forEach(el => {
+      const field = el.dataset.panel;
+      const save = (doRerender) => {
+        const tk = getTask(id); if (!tk) return;
+        if (field === 'project') tk.projectId = el.value || null;
+        else if (field === 'worktype') tk.workType = el.value || null;
+        else if (field === 'status') tk.progress = el.value || null;
+        else if (field === 'assignee') tk.assignee = el.value.trim() || null;
+        persistTasks();
+        if (doRerender) rerender();
+      };
+      if (el.tagName === 'SELECT') el.addEventListener('change', () => save(true));
+      else { el.addEventListener('input', () => save(false)); el.addEventListener('blur', () => save(false)); }
+    });
+
     // description textarea
     const ta = $('[data-desc-input]', row);
     if (ta) {
-      autoGrowTextarea(ta); ta.focus();
+      autoGrowTextarea(ta);
       let timer;
       ta.addEventListener('input', () => { autoGrowTextarea(ta); clearTimeout(timer); timer = setTimeout(() => updateTaskDescription(id, ta.value), 400); });
       ta.addEventListener('blur', () => updateTaskDescription(id, ta.value));
@@ -1155,19 +1184,6 @@ function editTitleInline(span, id, rerender) {
     if (isEnter(e)) { e.preventDefault(); commit(); }
     else if (e.key === 'Escape') { done = true; rerender(); }
   });
-  input.addEventListener('blur', commit);
-}
-
-function editAssigneeInline(btn, id, rerender) {
-  const t = getTask(id); if (!t) return;
-  const input = document.createElement('input');
-  input.type = 'text'; input.className = 'task-title-input';
-  input.style.flex = '0 0 auto'; input.style.maxWidth = '130px';
-  input.value = t.assignee || ''; input.placeholder = '誰に頼んだ？';
-  btn.replaceWith(input); input.focus(); input.select();
-  let done = false;
-  const commit = () => { if (done) return; done = true; t.assignee = input.value.trim() || null; persistTasks(); rerender(); };
-  input.addEventListener('keydown', e => { if (isEnter(e)) { e.preventDefault(); commit(); } else if (e.key === 'Escape') { done = true; rerender(); } });
   input.addEventListener('blur', commit);
 }
 
@@ -1200,18 +1216,6 @@ function openRepeatSelect(btn, id, rerender) {
   sel.addEventListener('change', commit); sel.addEventListener('blur', commit);
 }
 
-function openProjectSelect(btn, id, rerender) {
-  const t = getTask(id); if (!t) return;
-  const sel = document.createElement('select');
-  sel.className = 'tag-select';
-  sel.innerHTML = `<option value="">プロジェクトなし</option>` +
-    state.projects.map(p => `<option value="${p.id}" ${t.projectId===p.id?'selected':''}>${escapeHTML(p.name)}</option>`).join('');
-  btn.replaceWith(sel); sel.focus(); if (sel.showPicker) try { sel.showPicker(); } catch {}
-  let done = false;
-  const commit = () => { if (done) return; done = true; t.projectId = sel.value || null; persistTasks(); rerender(); };
-  sel.addEventListener('change', commit); sel.addEventListener('blur', commit);
-}
-
 function openHoursSelect(btn, id, rerender) {
   const t = getTask(id); if (!t) return;
   const sel = document.createElement('select');
@@ -1222,17 +1226,6 @@ function openHoursSelect(btn, id, rerender) {
   const commit = () => { if (done) return; done = true; t.estimatedHours = parseFloat(sel.value); if (t.status==='completed') t.actualHours = t.estimatedHours; persistTasks(); rerender(); };
   sel.addEventListener('change', commit); sel.addEventListener('blur', commit);
 }
-function openProgressSelect(btn, id, rerender) {
-  const t = getTask(id); if (!t) return;
-  const sel = document.createElement('select');
-  sel.className = 'tag-select';
-  sel.innerHTML = TASK_PROGRESS.map(p => `<option value="${p.key==null?'':p.key}" ${(t.progress||null)===p.key?'selected':''}>${p.dropdown}</option>`).join('');
-  btn.replaceWith(sel); sel.focus(); if (sel.showPicker) try { sel.showPicker(); } catch {}
-  let done = false;
-  const commit = () => { if (done) return; done = true; t.progress = sel.value || null; persistTasks(); rerender(); };
-  sel.addEventListener('change', commit); sel.addEventListener('blur', commit);
-}
-
 /* ============ Bind: Notes ============ */
 function bindNotesInteractions(root) {
   const ni = $('#noteInput', root);
