@@ -597,6 +597,7 @@ const state = {
   collapsedDays: new Set(),
   collapsedSomeday: false,
   collapsedDelegated: false,
+  collapsedFuture: false,
   collapsedProjects: new Set(),
   notesHidden: loadStr('taskdock_notesHidden') === '1',
   expandedNoteId: null,
@@ -797,8 +798,8 @@ function renderTasks() {
   bindTasksTab();
 }
 
-function sectionHTML({ key, title, count, collapsed, tasks, emptyMsg, addDate, addLabel, showAdd }) {
-  const rows = tasks.length ? tasks.map(taskRowHTML).join('') : (emptyMsg ? `<div class="empty-msg">${escapeHTML(emptyMsg)}</div>` : '');
+function sectionHTML({ key, title, count, collapsed, tasks, emptyMsg, addDate, addLabel, showAdd, showSched }) {
+  const rows = tasks.length ? tasks.map(t => taskRowHTML(t, showSched ? { showTodayBadge: true } : {})).join('') : (emptyMsg ? `<div class="empty-msg">${escapeHTML(emptyMsg)}</div>` : '');
   const add = showAdd ? `<div class="inline-add"><span class="plus">＋</span><input type="text" data-add-date="${addDate==null?'':addDate}" placeholder="${escapeHTML(addLabel)}" autocomplete="off"></div>` : '';
   return `<div class="card tasks-section ${collapsed?'collapsed':''}" data-section="${key}">
     <div class="tasks-section-header" data-toggle-section="${key}">
@@ -819,13 +820,13 @@ function renderListView() {
     emptyMsg: '今日はまだタスクがありません', showAdd: false,
   });
 
-  futureDates().forEach(date => {
-    const list = tasksOnDate(date);
-    html += sectionHTML({
-      key: 'day:'+date, title: formatDateJP(date), count: list.length,
-      collapsed: state.collapsedDays.has(date), tasks: list,
-      addDate: date, addLabel: '＋ この日にタスクを追加', showAdd: true,
-    });
+  const future = state.tasks
+    .filter(t => t.bucket !== 'delegated' && t.scheduledDate && t.scheduledDate > today)
+    .sort((a,b) => a.scheduledDate.localeCompare(b.scheduledDate) || (a.order||0)-(b.order||0));
+  html += sectionHTML({
+    key: 'future', title: '📅 明日以降のタスク', count: future.length,
+    collapsed: state.collapsedFuture, tasks: future, showSched: true,
+    emptyMsg: '明日以降に予定したタスクはありません', showAdd: false,
   });
 
   const someday = somedayTasks();
@@ -1078,6 +1079,7 @@ function bindTasksTab() {
   $$('[data-toggle-section]', root).forEach(h => h.addEventListener('click', () => {
     const key = h.dataset.toggleSection;
     if (key === 'today') state.collapsedToday = !state.collapsedToday;
+    else if (key === 'future') state.collapsedFuture = !state.collapsedFuture;
     else if (key === 'someday') state.collapsedSomeday = !state.collapsedSomeday;
     else if (key === 'delegated') state.collapsedDelegated = !state.collapsedDelegated;
     else if (key.startsWith('day:')) { const d = key.slice(4); state.collapsedDays.has(d) ? state.collapsedDays.delete(d) : state.collapsedDays.add(d); }
