@@ -318,6 +318,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 .repeat-badge { background: rgba(104,136,110,.16); color: var(--green-600); border: none; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; flex-shrink: 0; transition: filter .15s ease; }
 .repeat-badge:hover { filter: brightness(.96); }
 .meta-input { font-size: 12px; border: 1px solid var(--gray-300); border-radius: 6px; padding: 2px 6px; outline: none; flex-shrink: 0; background: #fff; }
+.sched-badge { background: var(--gray-100); color: var(--gray-600); border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.qa-date { display: inline-flex; background: var(--gray-100); border-radius: 7px; padding: 2px; gap: 2px; flex-shrink: 0; }
+.qa-date button { border: none; background: none; padding: 4px 9px; font-size: 12px; font-weight: 600; color: var(--gray-500); border-radius: 5px; white-space: nowrap; }
+.qa-date button.active { background: #fff; color: var(--ink); box-shadow: var(--shadow-sm); }
 .notes-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; padding: 0 2px; }
 .notes-header h2 { font-size: 14px; font-weight: 700; color: var(--ink); }
 .notes-header .count { font-size: 11px; color: var(--gray-500); }
@@ -588,6 +592,7 @@ const state = {
   expandedNoteId: null,
   expandedTaskId: null,
   justAddedId: null,
+  quickAddDate: todayISO(),
 };
 if (!state.workTypes.length) state.workTypes = DEFAULT_WORK_TYPES.slice();
 
@@ -751,10 +756,18 @@ function renderTasks() {
       <div class="progress-bar"><div class="progress-fill" style="width:${st.pct}%"></div></div>
     </div>`;
 
+  const tmrw = addDays(today, 1);
+  const qd = state.quickAddDate;
+  const qdKind = qd === today ? 'today' : qd === tmrw ? 'tomorrow' : 'custom';
   const quickAdd = `
     <div class="card quick-add">
       <span class="quick-add-circle">${Icon.plus}</span>
       <input id="quickAddInput" type="text" placeholder="タスクを追加（Enter で確定）" autocomplete="off">
+      <div class="qa-date">
+        <button data-qa-date="today" class="${qdKind==='today'?'active':''}">今日</button>
+        <button data-qa-date="tomorrow" class="${qdKind==='tomorrow'?'active':''}">明日</button>
+        <button data-qa-date="pick" class="${qdKind==='custom'?'active':''}">${qdKind==='custom'?'📅 '+formatMD(qd):'📅'}</button>
+      </div>
       <button class="btn btn-primary btn-sm" id="quickAddBtn">追加</button>
     </div>`;
 
@@ -882,8 +895,11 @@ function moveButtonsHTML(t) {
 
 function taskRowHTML(t, opts = {}) {
   const checked = t.status === 'completed';
-  const todayBadge = (opts.showTodayBadge && t.scheduledDate === todayISO())
-    ? `<span class="today-badge">今日</span>` : '';
+  let todayBadge = '';
+  if (opts.showTodayBadge) {
+    if (t.scheduledDate === todayISO()) todayBadge = `<span class="today-badge">今日</span>`;
+    else if (t.scheduledDate && t.scheduledDate > todayISO()) todayBadge = `<span class="sched-badge">📆 ${formatMD(t.scheduledDate)}</span>`;
+  }
   const proj = getProject(t.projectId);
   const wt = getWorkType(t.workType);
   const prog = TASK_PROGRESS.find(p => p.key === (t.progress||null)) || TASK_PROGRESS[0];
@@ -1021,11 +1037,26 @@ function bindTasksTab() {
   const qa = $('#quickAddInput', root), qaBtn = $('#quickAddBtn', root);
   const doQuickAdd = () => {
     const v = qa.value.trim(); if (!v) return;
-    addTask({ title: v, scheduledDate: todayISO() });
+    addTask({ title: v, scheduledDate: state.quickAddDate });
     qa.value = ''; renderTasks(); $('#quickAddInput')?.focus();
   };
   if (qa) qa.addEventListener('keydown', e => { if (isEnter(e)) { e.preventDefault(); doQuickAdd(); } });
   if (qaBtn) qaBtn.addEventListener('click', doQuickAdd);
+
+  // quick-add target date selector
+  $$('.qa-date [data-qa-date]', root).forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.qaDate;
+    if (k === 'today') { state.quickAddDate = todayISO(); renderTasks(); $('#quickAddInput')?.focus(); }
+    else if (k === 'tomorrow') { state.quickAddDate = addDays(todayISO(), 1); renderTasks(); $('#quickAddInput')?.focus(); }
+    else {
+      const input = document.createElement('input');
+      input.type = 'date'; input.className = 'meta-input'; input.min = todayISO(); input.value = state.quickAddDate;
+      b.replaceWith(input); input.focus(); if (input.showPicker) try { input.showPicker(); } catch {}
+      let done = false;
+      const commit = () => { if (done) return; done = true; if (input.value) state.quickAddDate = input.value; renderTasks(); $('#quickAddInput')?.focus(); };
+      input.addEventListener('change', commit); input.addEventListener('blur', commit);
+    }
+  }));
 
   // section collapse
   $$('[data-toggle-section]', root).forEach(h => h.addEventListener('click', () => {
