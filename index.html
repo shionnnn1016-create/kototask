@@ -360,6 +360,7 @@ main { width: 100%; margin: 0; padding: 20px 16px 80px; }
 .note-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .note-meta .date { font-size: 11px; color: var(--gray-400); margin-left: auto; }
 .note-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.notes-delegated { margin-top: 16px; }
 
 /* ============ Calendar ============ */
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -859,14 +860,21 @@ function renderListView() {
     addDate: null, addLabel: '＋ いつかやるタスクを追加', showAdd: true,
   });
 
-  const deleg = delegatedTasks();
-  html += sectionHTML({
-    key: 'delegated', title: '🤝 依頼中', count: deleg.length,
-    collapsed: state.collapsedDelegated, tasks: deleg,
-    emptyMsg: '誰かに頼んでるタスクはありません', showAdd: false,
-  });
-
   return html;
+}
+
+function delegatedSectionHTML() {
+  const deleg = delegatedTasks();
+  const rows = deleg.length
+    ? deleg.map(t => taskRowHTML(t)).join('')
+    : `<div class="empty-msg">誰かに頼んでるタスクはありません</div>`;
+  return `<div class="card tasks-section notes-delegated ${state.collapsedDelegated?'collapsed':''}" data-section="delegated">
+    <div class="tasks-section-header" data-toggle-section="delegated">
+      <span class="tasks-section-title">${Icon.chevDown}🤝 依頼中</span>
+      <span class="tasks-section-count">${deleg.length}件</span>
+    </div>
+    <ul class="task-list">${rows}</ul>
+  </div>`;
 }
 
 function renderProjectView() {
@@ -975,6 +983,7 @@ function taskRowHTML(t, opts = {}) {
     <button class="task-check ${checked?'checked':''}" data-action="toggle">${Icon.check}</button>
     <span class="task-title" data-action="edit">${escapeHTML(t.title)}</span>
     ${proj ? `<span class="proj-dot" style="background:${proj.color}" title="${escapeHTML(proj.name)}"></span>` : ''}
+    ${t.bucket==='delegated' && t.assignee ? `<span class="assignee-tag">🧑 ${escapeHTML(t.assignee)}</span>` : ''}
     ${todayBadge}
     <button class="hours-tag" data-action="hours">${fmt(t.estimatedHours)}h</button>
     ${dueHTML}
@@ -1027,7 +1036,7 @@ function renderNotesPanel() {
   </div>`;
   const notes = state.notes.slice().sort((a,b)=> (b.updatedAt||'').localeCompare(a.updatedAt||''));
   const list = notes.map(noteCardHTML).join('');
-  return `<div class="notes-panel">${banner}${header}${addArea}${list}</div>`;
+  return `<div class="notes-panel">${banner}${header}${addArea}${list}${delegatedSectionHTML()}</div>`;
 }
 function noteCardHTML(n) {
   const proj = getProject(n.projectId);
